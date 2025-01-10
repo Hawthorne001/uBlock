@@ -319,6 +319,8 @@ onBroadcast(msg => {
         cnameIgnoreRootDocument: µbhs.cnameIgnoreRootDocument,
         cnameMaxTTL: µbhs.cnameMaxTTL,
         cnameReplayFullURL: µbhs.cnameReplayFullURL,
+        dnsCacheTTL: µbhs.dnsCacheTTL,
+        dnsResolveEnabled: µbhs.dnsResolveEnabled,
     });
 });
 
@@ -433,7 +435,7 @@ onBroadcast(msg => {
                 try {
                     const url = new URL(prefix);
                     if ( url.hostname.length > 0 ) { return url.href; }
-                } catch(_) {
+                } catch {
                 }
             }).filter(prefix => prefix !== undefined);
     }

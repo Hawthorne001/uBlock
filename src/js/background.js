@@ -66,11 +66,14 @@ const hiddenSettingsDefault = {
     debugScriptletInjector: false,
     differentialUpdate: true,
     disableWebAssembly: false,
+    dnsCacheTTL: 600,
+    dnsResolveEnabled: true,
     extensionUpdateForceReload: false,
     filterAuthorMode: false,
     loggerPopupType: 'popup',
     manualUpdateAssetFetchPeriod: 500,
     modifyWebextFlavor: 'unset',
+    noScriptingCSP: 'script-src http: https:',
     popupFontSize: 'unset',
     popupPanelDisabledSections: 0,
     popupPanelHeightMode: 0,
@@ -252,7 +255,6 @@ const µBlock = {  // jshint ignore:line
     scriptlets: {},
 
     cspNoInlineScript: "script-src 'unsafe-eval' * blob: data:",
-    cspNoScripting: 'script-src http: https:',
     cspNoInlineFont: 'font-src *',
 
     liveBlockingProfiles: [],

@@ -1012,7 +1012,7 @@
     "description": "An entry in the widget used to select the type of issue"
   },
   "supportS6Select1Option7": {
-    "message": "Leads to badware, phishing",
+    "message": "Porta a badware, phishing",
     "description": "An entry in the widget used to select the type of issue"
   },
   "supportS6Checkbox1": {
@@ -1190,6 +1190,10 @@
   "docblockedDisable": {
     "message": "Procedi",
     "description": "Button text to navigate to the blocked page"
+  },
+  "docblockedRedirectPrompt": {
+    "message": "La pagina bloccata vuole reindirizzare a un altro sito. Se scegli di procedere, navigherai direttamente a: {{url}}",
+    "description": "Text warning about an incoming redirect"
   },
   "cloudPush": {
     "message": "Esporta nel cloud",

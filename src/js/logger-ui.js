@@ -2156,7 +2156,7 @@ const rowFilterer = (( ) => {
                 reStr = rawPart.slice(1, -1);
                 try {
                     new RegExp(reStr);
-                } catch(ex) {
+                } catch {
                     reStr = '';
                 }
             }
@@ -2779,7 +2779,7 @@ const loggerStats = (( ) => {
             const outputOne = [];
             for ( let i = 0; i < fields.length; i++ ) {
                 const field = fields[i];
-                let code = /\b(?:www\.|https?:\/\/)/.test(field) ? '`' : '';
+                const code = i === 1 || /\b(?:www\.|https?:\/\/)/.test(field) ? '`' : '';
                 outputOne.push(` ${code}${field.replace(/\|/g, '\\|')}${code} `);
             }
             outputAll.push(outputOne.join('|'));
@@ -2937,7 +2937,7 @@ const loggerSettings = (( ) => {
             if ( Array.isArray(stored.columns) ) {
                 settings.columns = stored.columns;
             }
-        } catch(_) {
+        } catch {
         }
     });
 
