@@ -139,6 +139,7 @@ function registerHighGeneric(context, genericDetails) {
     const directive = {
         id: 'css-generichigh',
         css,
+        allFrames: true,
         matches,
         excludeMatches,
         runAt: 'document_end',
@@ -450,8 +451,8 @@ function registerScriptlet(context, scriptletDetails) {
                     targetHostnames = permissionGrantedHostnames;
                 } else {
                     targetHostnames = ut.intersectHostnameIters(
-                        permissionGrantedHostnames,
-                        scriptletHostnames
+                        scriptletHostnames,
+                        permissionGrantedHostnames
                     );
                 }
             }

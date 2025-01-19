@@ -28,6 +28,7 @@ import BidiTrieContainer from './biditrie.js';
 import { CompiledListReader } from './static-filtering-io.js';
 import { FilteringContext } from './filtering-context.js';
 import HNTrieContainer from './hntrie.js';
+import { urlSkip } from './urlskip.js';
 
 /******************************************************************************/
 
@@ -418,7 +419,7 @@ class LogData {
     }
 
     static requote(s) {
-        if ( /^(["'`]).+\1$|,/.test(s) === false ) { return s; }
+        if ( /^\$|^(["'`]).*\1$|,/.test(s) === false ) { return s; }
         if ( s.includes("'") === false ) { return `'${s}'`; }
         if ( s.includes('"') === false ) { return `"${s}"`; }
         if ( s.includes('`') === false ) { return `\`${s}\``; }
@@ -766,10 +767,6 @@ class FilterImportant {
 
     static fromCompiled(args) {
         return filterDataAlloc(args[0]);
-    }
-
-    static dnrFromCompiled(args, rule) {
-        rule.priority = (rule.priority || 0) + 30;
     }
 
     static keyFromArgs() {
@@ -2979,26 +2976,47 @@ registerFilterClass(FilterOnHeaders);
 /******************************************************************************/
 
 class FilterIPAddress {
+    static TYPE_UNKNOWN = 0;
+    static TYPE_EQUAL = 1;
+    static TYPE_STARTSWITH = 2;
+    static TYPE_LAN = 3;
+    static TYPE_LOOPBACK = 4;
+    static TYPE_RE = 5;
     static reIPv6IPv4lan = /^::ffff:(7f\w{2}|a\w{2}|a9fe|c0a8):\w+$/;
     static reIPv6local = /^f[cd]\w{2}:/;
 
     static match(idata) {
         const ipaddr = $requestAddress;
-        const details = filterRefs[filterData[idata+1]];
-        if ( details.isRegex ) {
-            if ( details.$re === undefined ) {
-                details.$re = new RegExp(details.pattern.slice(1, -1));
-            }
-            return details.$re.test(ipaddr);
-        }
         if ( ipaddr === '' ) { return false; }
-        if ( details.pattern === 'lan' ) {
+        const details = filterRefs[filterData[idata+1]];
+        switch ( details.$type || this.TYPE_UNKNOWN ) {
+        case this.TYPE_LAN:
             return this.isLAN(ipaddr);
-        }
-        if ( details.pattern === 'loopback' ) {
+        case this.TYPE_LOOPBACK:
             return this.isLoopback(ipaddr);
+        case this.TYPE_EQUAL:
+        case this.TYPE_STARTSWITH:
+        case this.TYPE_RE:
+            return details.$pattern.test(ipaddr);
+        default:
+            break;
         }
-        return ipaddr.startsWith(details.pattern);
+        const { pattern } = details;
+        if ( pattern === 'lan' ) {
+            details.$type = this.TYPE_LAN;
+        } else if ( pattern === 'loopback' ) {
+            details.$type = this.TYPE_LOOPBACK;
+        } else if ( pattern.startsWith('/') && pattern.endsWith('/') ) {
+            details.$type = this.TYPE_RE;
+            details.$pattern = new RegExp(pattern.slice(1, -1), 'm');
+        } else if ( pattern.endsWith('*') ) {
+            details.$type = this.TYPE_STARTSWITH;
+            details.$pattern = new RegExp(`^${restrFromPlainPattern(pattern.slice(0, -1))}`, 'm');
+        } else {
+            details.$type = this.TYPE_EQUAL;
+            details.$pattern = new RegExp(`^${restrFromPlainPattern(pattern)}$`, 'm');
+        }
+        return this.match(idata);
     }
 
     // https://github.com/uBlockOrigin/uAssets/blob/master/filters/lan-block.txt
@@ -3027,13 +3045,8 @@ class FilterIPAddress {
             if ( ipaddr.startsWith('::ffff:') === false ) { return false; }
             return this.reIPv6IPv4lan.test(ipaddr);
         }
-        if ( ipaddr.includes(':') ) {
-            if ( c0 === 0x36 /* 6 */ ) {
-                return ipaddr.startsWith('64:ff9b:');
-            }
-            if ( c0 === 0x66 /* f */ ) {
-                return this.reIPv6local.test(ipaddr);
-            }
+        if ( c0 === 0x66 /* f */ ) {
+            return this.reIPv6local.test(ipaddr);
         }
         return false;
     }
@@ -3048,10 +3061,7 @@ class FilterIPAddress {
 
     static fromCompiled(args) {
         const pattern = args[1];
-        const details = {
-            pattern,
-            isRegex: pattern.startsWith('/') && pattern.endsWith('/'),
-        };
+        const details = { pattern };
         return filterDataAlloc(args[0], filterRefAdd(details));
     }
 
@@ -3439,7 +3449,7 @@ class FilterCompiler {
         try {
             const re = new RegExp(s);
             return re.source;
-        } catch (ex) {
+        } catch {
         }
         return '';
     }
@@ -4439,22 +4449,27 @@ StaticNetFilteringEngine.prototype.dnrFromCompiled = function(op, context, ...ar
     }
 
     // Priority:
-    //   Block: 1 (default priority)
-    //   Redirect: 2-9
-    //   Excepted redirect: 12-19
-    //   Allow: 20
-    //   Block important: 30
-    //   Redirect important: 32-39
+    //   Removeparam: 1-4
+    //   Block: 10 (default priority)
+    //   Redirect: 11-19
+    //   Excepted redirect: 21-29
+    //   Allow: 30
+    //   Block important: 40
+    //   Redirect important: 41-49
 
     const realms = new Map([
-        [ BLOCK_REALM, { type: 'block', priority: 0 } ],
-        [ ALLOW_REALM, { type: 'allow', priority: 20 } ],
-        [ REDIRECT_REALM, { type: 'redirect', priority: 2 } ],
+        [ BLOCK_REALM, { type: 'block', priority: 10 } ],
+        [ BLOCK_REALM | IMPORTANT_REALM, { type: 'block', priority: 40 } ],
+        [ ALLOW_REALM, { type: 'allow', priority: 30 } ],
+        [ REDIRECT_REALM, { type: 'redirect', priority: 11 } ],
+        [ REDIRECT_REALM | IMPORTANT_REALM, { type: 'redirect', priority: 41 } ],
         [ REMOVEPARAM_REALM, { type: 'removeparam', priority: 0 } ],
         [ CSP_REALM, { type: 'csp', priority: 0 } ],
         [ PERMISSIONS_REALM, { type: 'permissions', priority: 0 } ],
         [ URLTRANSFORM_REALM, { type: 'uritransform', priority: 0 } ],
-        [ HEADERS_REALM, { type: 'block', priority: 0 } ],
+        [ HEADERS_REALM, { type: 'block', priority: 10 } ],
+        [ HEADERS_REALM | ALLOW_REALM, { type: 'allow', priority: 30 } ],
+        [ HEADERS_REALM | IMPORTANT_REALM, { type: 'allow', priority: 40 } ],
         [ URLSKIP_REALM, { type: 'urlskip', priority: 0 } ],
     ]);
     const partyness = new Map([
@@ -4592,7 +4607,7 @@ StaticNetFilteringEngine.prototype.dnrFromCompiled = function(op, context, ...ar
             if ( token !== '' ) {
                 const match = /:(\d+)$/.exec(token);
                 if ( match !== null ) {
-                    rule.priority = Math.min(rule.priority + parseInt(match[1], 10), 9);
+                    rule.priority += Math.min(rule.priority + parseInt(match[1], 10), 9);
                     token = token.slice(0, match.index);
                 }
             }
@@ -4610,7 +4625,7 @@ StaticNetFilteringEngine.prototype.dnrFromCompiled = function(op, context, ...ar
             }
             break;
         }
-        case 'removeparam':
+        case 'removeparam': {
             rule.action.type = 'redirect';
             if ( rule.__modifierValue === '|' ) {
                 rule.__modifierValue = '';
@@ -4638,18 +4653,50 @@ StaticNetFilteringEngine.prototype.dnrFromCompiled = function(op, context, ...ar
                 };
             }
             if ( rule.condition.resourceTypes === undefined ) {
-                rule.condition.resourceTypes = [
-                    'main_frame',
-                    'sub_frame',
-                    'xmlhttprequest',
-                ];
+                if ( rule.condition.excludedResourceTypes === undefined ) {
+                    rule.condition.resourceTypes = [
+                        'main_frame',
+                        'sub_frame',
+                        'xmlhttprequest',
+                    ];
+                }
+            }
+            // https://github.com/uBlockOrigin/uBOL-home/issues/140
+            //   Mitigate until DNR API flaw is addressed by browser vendors
+            let priority = rule.priority || 1;
+            if ( rule.condition.urlFilter !== undefined ) { priority += 1; }
+            if ( rule.condition.regexFilter !== undefined ) { priority += 1; }
+            if ( rule.condition.initiatorDomains !== undefined ) { priority += 1; }
+            if ( rule.condition.requestDomains !== undefined ) { priority += 1; }
+            if ( priority !== 1 ) {
+                rule.priority = priority;
             }
             if ( rule.__modifierAction === ALLOW_REALM ) {
                 dnrAddRuleError(rule, `Unsupported removeparam exception: ${rule.__modifierValue}`);
             }
             break;
+        }
         case 'uritransform': {
             dnrAddRuleError(rule, `Incompatible with DNR: uritransform=${rule.__modifierValue}`);
+            break;
+        }
+        case 'urlskip': {
+            let urlFilter = rule.condition?.urlFilter;
+            if ( urlFilter === undefined ) { break; }
+            let anchor = 0b000;
+            if ( urlFilter.startsWith('||') ) {
+                anchor |= 0b100;
+                urlFilter = urlFilter.slice(2);
+            } else if ( urlFilter.startsWith('|') ) {
+                anchor |= 0b10;
+                urlFilter = urlFilter.slice(1);
+            }
+            if ( urlFilter.endsWith('|') ) {
+                anchor |= 0b001;
+                urlFilter = urlFilter.slice(0, -1);
+            }
+            rule.condition.urlFilter = undefined;
+            rule.condition.regexFilter = restrFromGenericPattern(urlFilter, anchor);
             break;
         }
         default:
@@ -4773,20 +4820,13 @@ StaticNetFilteringEngine.prototype.toSelfie = function() {
     };
 };
 
-StaticNetFilteringEngine.prototype.serialize = async function() {
-    const selfie = [];
-    const storage = {
-        put(name, data) {
-            selfie.push([ name, data ]);
-        }
-    };
-    await this.toSelfie(storage, '');
-    return JSON.stringify(selfie);
+StaticNetFilteringEngine.prototype.serialize = function() {
+    return this.toSelfie();
 };
 
 /******************************************************************************/
 
-StaticNetFilteringEngine.prototype.fromSelfie = async function(selfie) {
+StaticNetFilteringEngine.prototype.fromSelfie = function(selfie) {
     if ( typeof selfie !== 'object' || selfie === null ) { return; }
 
     this.reset();
@@ -4819,14 +4859,8 @@ StaticNetFilteringEngine.prototype.fromSelfie = async function(selfie) {
     return true;
 };
 
-StaticNetFilteringEngine.prototype.unserialize = async function(s) {
-    const selfie = new Map(JSON.parse(s));
-    const storage = {
-        async get(name) {
-            return { content: selfie.get(name) };
-        }
-    };
-    return this.fromSelfie(storage, '');
+StaticNetFilteringEngine.prototype.unserialize = function(selfie) {
+    return this.fromSelfie(selfie);
 };
 
 /******************************************************************************/
@@ -5353,12 +5387,10 @@ StaticNetFilteringEngine.prototype.transformRequest = function(fctxt, out = []) 
             out.push(directive);
             continue;
         }
-        const { refs } = directive;
-        if ( refs instanceof Object === false ) { continue; }
-        if ( refs.$cache === null ) {
-            refs.$cache = sfp.parseReplaceValue(refs.value);
+        if ( directive.cache === null ) {
+            directive.cache = sfp.parseReplaceValue(directive.value);
         }
-        const cache = refs.$cache;
+        const cache = directive.cache;
         if ( cache === undefined ) { continue; }
         const before = `${redirectURL.pathname}${redirectURL.search}${redirectURL.hash}`;
         if ( cache.re.test(before) !== true ) { continue; }
@@ -5379,9 +5411,11 @@ StaticNetFilteringEngine.prototype.transformRequest = function(fctxt, out = []) 
     return out;
 };
 
-/******************************************************************************/
-
-StaticNetFilteringEngine.prototype.urlSkip = function(fctxt, out = []) {
+StaticNetFilteringEngine.prototype.urlSkip = function(
+    fctxt,
+    blocked,
+    out = []
+) {
     if ( fctxt.redirectURL !== undefined ) { return; }
     const directives = this.matchAndFetchModifiers(fctxt, 'urlskip');
     if ( directives === undefined ) { return; }
@@ -5393,7 +5427,7 @@ StaticNetFilteringEngine.prototype.urlSkip = function(fctxt, out = []) {
         const urlin = fctxt.url;
         const value = directive.value;
         const steps = value.includes(' ') && value.split(/ +/) || [ value ];
-        const urlout = urlSkip(urlin, steps);
+        const urlout = urlSkip(urlin, blocked, steps, directive);
         if ( urlout === undefined ) { continue; }
         if ( urlout === urlin ) { continue; }
         fctxt.redirectURL = urlout;
@@ -5403,24 +5437,6 @@ StaticNetFilteringEngine.prototype.urlSkip = function(fctxt, out = []) {
     if ( out.length === 0 ) { return; }
     return out;
 };
-
-function urlSkip(urlin, steps) {
-    try {
-        let urlout;
-        for ( const step of steps ) {
-            if ( step.startsWith('?') === false ) { return; }
-            urlout = (new URL(urlin)).searchParams.get(step.slice(1));
-            if ( urlout === null ) { return; }
-            if ( urlout.includes(' ') ) {
-                urlout = urlout.replace(/ /g, '%20');
-            }
-            urlin = urlout;
-        }
-        void new URL(urlout);
-        return urlout;
-    } catch(x) {
-    }
-}
 
 /******************************************************************************/
 
@@ -5487,7 +5503,7 @@ StaticNetFilteringEngine.prototype.filterQuery = function(fctxt, out = []) {
         for ( const [ key, raw ] of params ) {
             let value = raw;
             try { value = decodeURIComponent(value); }
-            catch(ex) { }
+            catch { }
             if ( re.test(`${key}=${value}`) === not ) { continue; }
             if ( isException === false ) { params.delete(key); }
             filtered = true;
@@ -5620,6 +5636,12 @@ StaticNetFilteringEngine.prototype.test = function(details) {
             for ( const redirect of redirects ) {
                 out.push(`modified: ${redirect.logData().raw}`);
             }
+        }
+    }
+    const urlskips = this.matchAndFetchModifiers(fctxt, 'urlskip');
+    if ( urlskips ) {
+        for ( const urlskip of urlskips ) {
+            out.push(`modified: ${urlskip.logData().raw}`);
         }
     }
     return out.join('\n');
