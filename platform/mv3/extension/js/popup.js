@@ -34,12 +34,20 @@ import punycode from './punycode.js';
 
 const popupPanelData = {};
 const  currentTab = {};
-let tabHostname = '';
+const tabURL = new URL(runtime.getURL('/'));
 
 /******************************************************************************/
 
 function normalizedHostname(hn) {
     return hn.replace(/^www\./, '');
+}
+
+/******************************************************************************/
+
+function renderAdminRules() {
+    const { disabledFeatures: forbid = [] } = popupPanelData;
+    if ( forbid.length === 0 ) { return; }
+    dom.body.dataset.forbid = forbid.join(' ');
 }
 
 /******************************************************************************/
@@ -60,18 +68,28 @@ function setFilteringMode(level, commit = false) {
 }
 
 async function commitFilteringMode() {
-    if ( tabHostname === '' ) { return; }
-    const targetHostname = normalizedHostname(tabHostname);
+    if ( tabURL.hostname === '' ) { return; }
+    const targetHostname = normalizedHostname(tabURL.hostname);
     const modeSlider = qs$('.filteringModeSlider');
     const afterLevel = parseInt(modeSlider.dataset.level, 10);
     const beforeLevel = parseInt(modeSlider.dataset.levelBefore, 10);
     if ( afterLevel > 1 ) {
+        if ( beforeLevel <= 1 ) {
+            sendMessage({
+                what: 'setPendingFilteringMode',
+                tabId: currentTab.id,
+                url: tabURL.href,
+                hostname: targetHostname,
+                beforeLevel,
+                afterLevel,
+            });
+        }
         let granted = false;
         try {
             granted = await browser.permissions.request({
                 origins: [ `*://*.${targetHostname}/*` ],
             });
-        } catch(ex) {
+        } catch {
         }
         if ( granted !== true ) {
             setFilteringMode(beforeLevel);
@@ -92,7 +110,9 @@ async function commitFilteringMode() {
     }
     if ( actualLevel !== beforeLevel && popupPanelData.autoReload ) {
         self.setTimeout(( ) => {
-            browser.tabs.reload(currentTab.id);
+            browser.tabs.update(currentTab.id, {
+                url: tabURL.href,
+            });
         }, 437);
     }
 }
@@ -261,12 +281,6 @@ dom.on('#lessButton', 'click', ( ) => {
 
 /******************************************************************************/
 
-dom.on('[data-i18n-title="popupTipDashboard"]', 'click', ev => {
-    if ( ev.isTrusted !== true ) { return; }
-    if ( ev.button !== 0 ) { return; }
-    runtime.openOptionsPage();
-});
-
 dom.on('#showMatchedRules', 'click', ev => {
     if ( ev.isTrusted !== true ) { return; }
     if ( ev.button !== 0 ) { return; }
@@ -274,6 +288,33 @@ dom.on('#showMatchedRules', 'click', ev => {
         what: 'showMatchedRules',
         tabId: currentTab.id,
     });
+});
+
+/******************************************************************************/
+
+dom.on('[data-i18n-title="popupTipReport"]', 'click', ev => {
+    if ( ev.isTrusted !== true ) { return; }
+    let url;
+    try {
+        url = new URL(currentTab.url);
+    } catch {
+    }
+    if ( url === undefined ) { return; }
+    const reportURL = new URL(runtime.getURL('/report.html'));
+    reportURL.searchParams.set('url', url.href);
+    reportURL.searchParams.set('mode', popupPanelData.level);
+    sendMessage({
+        what: 'gotoURL',
+        url: `${reportURL.pathname}${reportURL.search}`,
+    });
+});
+
+/******************************************************************************/
+
+dom.on('[data-i18n-title="popupTipDashboard"]', 'click', ev => {
+    if ( ev.isTrusted !== true ) { return; }
+    if ( ev.button !== 0 ) { return; }
+    runtime.openOptionsPage();
 });
 
 /******************************************************************************/
@@ -288,30 +329,41 @@ async function init() {
 
     let url;
     try {
+        const strictBlockURL = runtime.getURL('/strictblock.');
         url = new URL(currentTab.url);
-        tabHostname = url.hostname || '';
-    } catch(ex) {
+        if ( url.href.startsWith(strictBlockURL) ) {
+            url = new URL(url.hash.slice(1));
+        }
+        tabURL.href = url.href || '';
+    } catch {
     }
 
     if ( url !== undefined ) {
         const response = await sendMessage({
             what: 'popupPanelData',
             origin: url.origin,
-            hostname: normalizedHostname(tabHostname),
+            hostname: normalizedHostname(tabURL.hostname),
         });
         if ( response instanceof Object ) {
             Object.assign(popupPanelData, response);
         }
     }
 
+    renderAdminRules();
+
     setFilteringMode(popupPanelData.level);
 
-    dom.text('#hostname', punycode.toUnicode(tabHostname));
+    dom.text('#hostname', punycode.toUnicode(tabURL.hostname));
 
     dom.cl.toggle('#showMatchedRules', 'enabled',
         popupPanelData.isSideloaded === true &&
+        popupPanelData.developerMode &&
         typeof currentTab.id === 'number' &&
         isNaN(currentTab.id) === false
+    );
+
+    dom.cl.toggle('#reportFilterIssue', 'enabled',
+        /^https?:\/\//.test(url?.href)
     );
 
     const parent = qs$('#rulesetStats');
@@ -351,7 +403,7 @@ async function init() {
 async function tryInit() {
     try {
         await init();
-    } catch(ex) {
+    } catch {
         setTimeout(tryInit, 100);
     }
 }

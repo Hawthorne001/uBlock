@@ -19,9 +19,8 @@
     Home: https://github.com/gorhill/uBlock
 */
 
-/******************************************************************************/
-
 import * as cssTree from '../lib/csstree/css-tree.js';
+import { ArglistParser } from './arglist-parser.js';
 import Regex from '../lib/regexanalyzer/regex.js';
 
 /*******************************************************************************
@@ -606,102 +605,6 @@ const exCharCodeAt = (s, i) => {
 
 /******************************************************************************/
 
-class ArgListParser {
-    constructor(separatorChar = ',', mustQuote = false) {
-        this.separatorChar = this.actualSeparatorChar = separatorChar;
-        this.separatorCode = this.actualSeparatorCode = separatorChar.charCodeAt(0);
-        this.mustQuote = mustQuote;
-        this.quoteBeg = 0; this.quoteEnd = 0;
-        this.argBeg = 0; this.argEnd = 0;
-        this.separatorBeg = 0; this.separatorEnd = 0;
-        this.transform = false;
-        this.failed = false;
-        this.reWhitespaceStart = /^\s+/;
-        this.reWhitespaceEnd = /\s+$/;
-        this.reOddTrailingEscape = /(?:^|[^\\])(?:\\\\)*\\$/;
-        this.reTrailingEscapeChars = /\\+$/;
-    }
-    nextArg(pattern, beg = 0) {
-        const len = pattern.length;
-        this.quoteBeg = beg + this.leftWhitespaceCount(pattern.slice(beg));
-        this.failed = false;
-        const qc = pattern.charCodeAt(this.quoteBeg);
-        if ( qc === 0x22 /* " */ || qc === 0x27 /* ' */ || qc === 0x60 /* ` */ ) {
-            this.indexOfNextArgSeparator(pattern, qc);
-            if ( this.argEnd !== len ) {
-                this.quoteEnd = this.argEnd + 1;
-                this.separatorBeg = this.separatorEnd = this.quoteEnd;
-                this.separatorEnd += this.leftWhitespaceCount(pattern.slice(this.quoteEnd));
-                if ( this.separatorEnd === len ) { return this; }
-                if ( pattern.charCodeAt(this.separatorEnd) === this.separatorCode ) {
-                    this.separatorEnd += 1;
-                    return this;
-                }
-            }
-        }
-        this.indexOfNextArgSeparator(pattern, this.separatorCode);
-        this.separatorBeg = this.separatorEnd = this.argEnd;
-        if ( this.separatorBeg < len ) {
-            this.separatorEnd += 1;
-        }
-        this.argEnd -= this.rightWhitespaceCount(pattern.slice(0, this.separatorBeg));
-        this.quoteEnd = this.argEnd;
-        if ( this.mustQuote ) {
-            this.failed = true;
-        }
-        return this;
-    }
-    normalizeArg(s, char = '') {
-        if ( char === '' ) { char = this.actualSeparatorChar; }
-        let out = '';
-        let pos = 0;
-        while ( (pos = s.lastIndexOf(char)) !== -1 ) {
-            out = s.slice(pos) + out;
-            s = s.slice(0, pos);
-            const match = this.reTrailingEscapeChars.exec(s);
-            if ( match === null ) { continue; }
-            const tail = (match[0].length & 1) !== 0
-                ? match[0].slice(0, -1)
-                : match[0];
-            out = tail + out;
-            s = s.slice(0, -match[0].length);
-        }
-        if ( out === '' ) { return s; }
-        return s + out;
-    }
-    leftWhitespaceCount(s) {
-        const match = this.reWhitespaceStart.exec(s);
-        return match === null ? 0 : match[0].length;
-    }
-    rightWhitespaceCount(s) {
-        const match = this.reWhitespaceEnd.exec(s);
-        return match === null ? 0 : match[0].length;
-    }
-    indexOfNextArgSeparator(pattern, separatorCode) {
-        this.argBeg = this.argEnd = separatorCode !== this.separatorCode
-            ? this.quoteBeg + 1
-            : this.quoteBeg;
-        this.transform = false;
-        if ( separatorCode !== this.actualSeparatorCode ) {
-            this.actualSeparatorCode = separatorCode;
-            this.actualSeparatorChar = String.fromCharCode(separatorCode);
-        }
-        while ( this.argEnd < pattern.length ) {
-            const pos = pattern.indexOf(this.actualSeparatorChar, this.argEnd);
-            if ( pos === -1 ) {
-                return (this.argEnd = pattern.length);
-            }
-            if ( this.reOddTrailingEscape.test(pattern.slice(0, pos)) === false ) {
-                return (this.argEnd = pos);
-            }
-            this.transform = true;
-            this.argEnd = pos + 1;
-        }
-    }
-}
-
-/******************************************************************************/
-
 class AstWalker {
     constructor(parser, from = 0) {
         this.parser = parser;
@@ -904,8 +807,8 @@ export class AstFilterParser {
         this.reBadPP = /(?:^|[;,])\s*report-to\b/i;
         this.reNetOption = /^(~?)([134a-z_-]+)(=?)/;
         this.reNoopOption = /^_+$/;
-        this.netOptionValueParser = new ArgListParser(',');
-        this.scriptletArgListParser = new ArgListParser(',');
+        this.netOptionValueParser = new ArglistParser(',');
+        this.scriptletArgListParser = new ArglistParser(',');
     }
 
     finish() {
@@ -1410,7 +1313,7 @@ export class AstFilterParser {
                 const value = this.getNetOptionValue(NODE_TYPE_NET_OPTION_NAME_IPADDRESS);
                 if ( /^\/.+\/$/.test(value) ) {
                     try { void new RegExp(value); }
-                    catch(_) { realBad = true; }
+                    catch { realBad = true; }
                 }
                 break;
             }
@@ -1531,7 +1434,7 @@ export class AstFilterParser {
                 break;
             }
             const value = this.getNetOptionValue(NODE_TYPE_NET_OPTION_NAME_URLSKIP);
-            if ( value.startsWith('?') === false || value.length < 2 ) {
+            if ( value.length < 2 ) {
                 this.astError = AST_ERROR_OPTION_BADVALUE;
                 realBad = true;
             }
@@ -1572,18 +1475,15 @@ export class AstFilterParser {
         if ( j === -1 ) { return end; }
         if ( (j+1) === end ) { return end; }
         for (;;) {
-            const before = s.charCodeAt(j-1);
-            if ( j !== start && before === 0x24 /* $ */ ) { return -1; }
-            const after = s.charCodeAt(j+1);
-            if (
-                after !== 0x29 /* ) */ &&
-                after !== 0x2F /* / */ &&
-                after !== 0x7C /* | */ &&
-                before !== 0x5C /* \ */
-            ) {
-                return j;
+            const before = s.charAt(j-1);
+            if ( before === '$' ) { return -1; }
+            const after = s.charAt(j+1);
+            if ( ')/|'.includes(after) === false ) {
+                if ( before === '' || '"\'\\`'.includes(before) === false ) {
+                    return j;
+                }
             }
-            if ( j <= start ) { break; }
+            if ( j === start ) { break; }
             j = s.lastIndexOf('$', j-1);
             if ( j === -1 ) { break; }
         }
@@ -1947,7 +1847,7 @@ export class AstFilterParser {
             normal = normal.replace(this.reUnicodeChars, s =>
                 encodeURIComponent(s).toLowerCase()
             );
-        } catch (ex) {
+        } catch {
             return;
         }
         return normal;
@@ -1988,6 +1888,7 @@ export class AstFilterParser {
         if ( parentEnd === parentBeg ) { return 0; }
         const s = this.getNodeString(parent);
         const optionsEnd = s.length;
+        const parseDetails = { node: 0, len: 0 };
         const head = this.allocHeadNode();
         let prev = head, next = 0;
         let optionBeg = 0, optionEnd = 0;
@@ -1997,11 +1898,11 @@ export class AstFilterParser {
                 parentBeg + optionBeg,
                 parentBeg + optionsEnd // open ended
             );
-            const { node: down, len: optionLen } = this.parseNetOption(next);
+            this.parseNetOption(next, parseDetails);
             // set next's end to down's end
-            optionEnd += optionLen;
+            optionEnd += parseDetails.len;
             this.nodes[next+NODE_END_INDEX] = parentBeg + optionEnd;
-            this.linkDown(next, down);
+            this.linkDown(next, parseDetails.node);
             prev = this.linkRight(prev, next);
             if ( optionEnd === optionsEnd ) { break; }
             optionBeg = optionEnd + 1;
@@ -2010,7 +1911,7 @@ export class AstFilterParser {
                 parentBeg + optionEnd,
                 parentBeg + optionBeg
             );
-            if ( optionLen === 0 || optionBeg === optionsEnd ) {
+            if ( parseDetails.len === 0 || optionBeg === optionsEnd ) {
                 this.addNodeFlags(next, NODE_FLAG_ERROR);
                 this.addFlags(AST_FLAG_HAS_ERROR);
             }
@@ -2023,7 +1924,7 @@ export class AstFilterParser {
         return this.throwHeadNode(head);
     }
 
-    parseNetOption(parent) {
+    parseNetOption(parent, parseDetails) {
         const parentBeg = this.nodes[parent+NODE_BEG_INDEX];
         const s = this.getNodeString(parent);
         const match = this.reNetOption.exec(s) || [];
@@ -2031,7 +1932,9 @@ export class AstFilterParser {
             this.addNodeFlags(parent, NODE_FLAG_ERROR);
             this.addFlags(AST_FLAG_HAS_ERROR);
             this.astError = AST_ERROR_OPTION_UNKNOWN;
-            return { node: 0, len: s.length };
+            parseDetails.node = 0;
+            parseDetails.len = s.length;
+            return;
         }
         const head = this.allocHeadNode();
         let prev = head, next = 0;
@@ -2073,7 +1976,9 @@ export class AstFilterParser {
         }
         prev = this.linkRight(prev, next);
         if ( assigned === false ) {
-            return { node: this.throwHeadNode(head), len: matchEnd };
+            parseDetails.node = this.throwHeadNode(head);
+            parseDetails.len = matchEnd;
+            return;
         }
         next = this.allocTypedNode(
             NODE_TYPE_NET_OPTION_ASSIGN,
@@ -2129,7 +2034,8 @@ export class AstFilterParser {
             );
             this.linkRight(prev, next);
         }
-        return { node: this.throwHeadNode(head), len: details.quoteEnd };
+        parseDetails.node = this.throwHeadNode(head);
+        parseDetails.len = details.quoteEnd;
     }
 
     endOfNetOption(s, beg) {
@@ -2156,32 +2062,26 @@ export class AstFilterParser {
         );
         if ( parentEnd === parentBeg ) { return containerNode; }
         const separatorCode = separator.charCodeAt(0);
+        const parseDetails = { separator, mode, node: 0, len: 0 };
         const listNode = this.allocHeadNode();
         let prev = listNode;
         let domainNode = 0;
         let separatorNode = 0;
         const s = this.getNodeString(parent);
         const listEnd = s.length;
-        let beg = 0, end = 0, c = 0;
+        let beg = 0, end = 0;
         while ( beg < listEnd ) {
-            c = s.charCodeAt(beg);
-            if ( c === 0x7E /* ~ */ ) {
-                c = s.charCodeAt(beg+1) || 0;
-            }
-            if ( c !== 0x2F /* / */ ) {
-                end = s.indexOf(separator, beg);
-            } else {
-                end = s.indexOf('/', beg+1);
-                end = s.indexOf(separator, end !== -1 ? end+1 : beg);
-            }
-            if ( end === -1 ) { end = listEnd; }
+            const next = this.allocTypedNode(
+                NODE_TYPE_OPTION_VALUE_DOMAIN_RAW,
+                parentBeg + beg,
+                parentBeg + listEnd // open ended
+            );
+            this.parseDomain(next, parseDetails);
+            end = beg + parseDetails.len;
+            this.nodes[next+NODE_END_INDEX] = parentBeg + end;
             if ( end !== beg ) {
-                domainNode = this.allocTypedNode(
-                    NODE_TYPE_OPTION_VALUE_DOMAIN_RAW,
-                    parentBeg + beg,
-                    parentBeg + end
-                );
-                this.linkDown(domainNode, this.parseDomain(domainNode, mode));
+                domainNode = next;
+                this.linkDown(domainNode, parseDetails.node);
                 prev = this.linkRight(prev, domainNode);
             } else {
                 domainNode = 0;
@@ -2217,23 +2117,38 @@ export class AstFilterParser {
         return containerNode;
     }
 
-    parseDomain(parent, mode = 0b0000) {
+    parseDomain(parent, parseDetails) {
         const parentBeg = this.nodes[parent+NODE_BEG_INDEX];
         const parentEnd = this.nodes[parent+NODE_END_INDEX];
+        const not = this.charCodeAt(parentBeg) === 0x7E /* ~ */;
         let head = 0, next = 0;
         let beg = parentBeg;
-        const c = this.charCodeAt(beg);
-        if ( c === 0x7E /* ~ */ ) {
+        if ( not ) {
             this.addNodeFlags(parent, NODE_FLAG_IS_NEGATED);
             head = this.allocTypedNode(NODE_TYPE_OPTION_VALUE_NOT, beg, beg + 1);
-            if ( (mode & 0b1000) === 0 ) {
+            if ( (parseDetails.mode & 0b1000) === 0 ) {
                 this.addNodeFlags(parent, NODE_FLAG_ERROR);
             }
             beg += 1;
         }
-        if ( beg !== parentEnd ) {
-            next = this.allocTypedNode(NODE_TYPE_OPTION_VALUE_DOMAIN, beg, parentEnd);
-            const hn = this.normalizeDomainValue(this.getNodeString(next), mode);
+        const c0 = this.charCodeAt(beg);
+        let end = beg;
+        let type = 0;
+        if ( c0 === 0x2F /* / */ ) {
+            end = this.indexOf('/', beg + 1, parentEnd);
+            if ( end !== -1 ) { end += 1; }
+            type = 1;
+        } else if ( c0 === 0x5B /* [ */ && this.startsWith('[$domain=/', beg) ) {
+            end = this.indexOf('/]', beg + 10, parentEnd);
+            if ( end !== -1 ) { end += 2; }
+            type = 2;
+        } else {
+            end = this.indexOf(parseDetails.separator, end, parentEnd);
+        }
+        if ( end === -1 ) { end = parentEnd; }
+        if ( beg !== end ) {
+            next = this.allocTypedNode(NODE_TYPE_OPTION_VALUE_DOMAIN, beg, end);
+            const hn = this.normalizeDomainValue(next, type, parseDetails.mode);
             if ( hn !== undefined ) {
                 if ( hn !== '' ) {
                     this.setNodeTransform(next, hn);
@@ -2252,7 +2167,8 @@ export class AstFilterParser {
             this.addNodeFlags(parent, NODE_FLAG_ERROR);
             this.addFlags(AST_FLAG_HAS_ERROR);
         }
-        return head;
+        parseDetails.node = head;
+        parseDetails.len = end - parentBeg;
     }
 
     // mode bits:
@@ -2261,16 +2177,16 @@ export class AstFilterParser {
     //   0b00100: can use single wildcard
     //   0b01000: can be negated
     //   0b10000: can be a regex
-    normalizeDomainValue(s, modeBits) {
-        if ( (modeBits & 0b10000) === 0 ||
-            s.length <= 2 ||
-            s.charCodeAt(0) !== 0x2F /* / */ ||
-            exCharCodeAt(s, -1) !== 0x2F /* / */
-        ) {
+    normalizeDomainValue(node, type, modeBits) {
+        const s = this.getNodeString(node);
+        if ( type === 0 ) {
             return this.normalizeHostnameValue(s, modeBits);
         }
-        const source = this.normalizeRegexPattern(s);
+        if ( (modeBits & 0b10000) === 0 ) { return ''; }
+        const regex = type === 1 ? s : `/${s.slice(10, -2)}/`;
+        const source = this.normalizeRegexPattern(regex);
         if ( source === '' ) { return ''; }
+        if ( type === 1 && source === regex ) { return; }
         return `/${source}/`;
     }
 
@@ -2578,6 +2494,12 @@ export class AstFilterParser {
         return head;
     }
 
+    getResponseheaderName() {
+        if ( this.isResponseheaderFilter() === false ) { return ''; }
+        const root = this.getBranchFromType(NODE_TYPE_EXT_PATTERN_RESPONSEHEADER);
+        return this.getNodeString(root);
+    }
+
     parseExtPatternHtml(parent) {
         const beg = this.nodes[parent+NODE_BEG_INDEX];
         const end = this.nodes[parent+NODE_END_INDEX];
@@ -2857,6 +2779,15 @@ export class AstFilterParser {
         return pos < this.rawEnd ? this.raw.charCodeAt(pos) : -1;
     }
 
+    indexOf(needle, beg, end = 0) {
+        const haystack = end === 0 ? this.raw : this.raw.slice(0, end);
+        return haystack.indexOf(needle, beg);
+    }
+
+    startsWith(s, pos) {
+        return pos < this.rawEnd && this.raw.startsWith(s, pos);
+    }
+
     isTokenCharCode(c) {
         return c === 0x25 ||
             c >= 0x30 && c <= 0x39 ||
@@ -2900,7 +2831,7 @@ export class AstFilterParser {
         try {
             this.punycoder.hostname = hn;
             hn = this.punycoder.hostname;
-        } catch (_) {
+        } catch {
             return '';
         }
         if ( hn === '_' || hn === '' ) { return ''; }
@@ -3024,7 +2955,7 @@ export function parseQueryPruneValue(arg) {
         try {
             out.re = new RegExp(match[1], match[2] || '');
         }
-        catch(ex) {
+        catch {
             out.bad = true;
         }
         return out;
@@ -3033,7 +2964,7 @@ export function parseQueryPruneValue(arg) {
     if ( s.startsWith('|') ) {
         try {
             out.re = new RegExp('^' + s.slice(1), 'i');
-        } catch(ex) {
+        } catch {
             out.bad = true;
         }
         return out;
@@ -3063,7 +2994,7 @@ export function parseHeaderValue(arg) {
         try {
             out.re = new RegExp(match[1], match[2] || '');
         }
-        catch(ex) {
+        catch {
             out.bad = true;
         }
     }
@@ -3075,7 +3006,7 @@ export function parseHeaderValue(arg) {
 
 export function parseReplaceValue(s) {
     if ( s.charCodeAt(0) !== 0x2F /* / */ ) { return; }
-    const parser = new ArgListParser('/');
+    const parser = new ArglistParser('/');
     parser.nextArg(s, 1);
     let pattern = s.slice(parser.argBeg, parser.argEnd);
     if ( parser.transform ) {
@@ -3095,7 +3026,7 @@ export function parseReplaceValue(s) {
     const flags = s.slice(parser.separatorEnd);
     try {
         return { re: new RegExp(pattern, flags), replacement };
-    } catch(_) {
+    } catch {
     }
 }
 
@@ -3320,10 +3251,13 @@ class ExtSelectorCompiler {
         //   We have an Adguard/ABP cosmetic filter if and only if the
         //   character is `$`, `%` or `?`, otherwise it's not a cosmetic
         //   filter.
-        // Adguard's style injection: translate to uBO's format.
-        if ( compileOptions.adgStyleSyntax === true ) {
-            raw = this.translateAdguardCSSInjectionFilter(raw);
-            if ( raw === '' ) { return false; }
+        // Adguard/EasyList style injection: translate to uBO's format.
+        if ( this.isStyleInjectionFilter(raw) ) {
+            const translated = this.translateStyleInjectionFilter(raw);
+            if ( translated === undefined ) { return false; }
+            raw = translated;
+        } else if ( compileOptions.adgStyleSyntax === true ) {
+            return false;
         }
 
         // Normalize AdGuard's attribute-based procedural operators.
@@ -3859,9 +3793,14 @@ class ExtSelectorCompiler {
         return true;
     }
 
-    translateAdguardCSSInjectionFilter(suffix) {
-        const matches = /^(.*)\s*\{([^}]+)\}\s*$/.exec(suffix);
-        if ( matches === null ) { return ''; }
+    isStyleInjectionFilter(selector) {
+        const len = selector.length;
+        return len !== 0 && selector.charCodeAt(len-1) === 0x7D /* } */;
+    }
+
+    translateStyleInjectionFilter(raw) {
+        const matches = /^(.+)\s*\{([^}]+)\}$/.exec(raw);
+        if ( matches === null ) { return; }
         const selector = matches[1].trim();
         const style = matches[2].trim();
         // Special style directive `remove: true` is converted into a
@@ -4116,10 +4055,12 @@ class ExtSelectorCompiler {
     compileXpathExpression(s) {
         const r = this.unquoteString(s);
         if ( r.i !== s.length ) { return; }
-        if ( globalThis.document instanceof Object === false ) { return r.s; }
+        const doc = globalThis.document;
+        if ( doc instanceof Object === false ) { return r.s; }
         try {
-            globalThis.document.createExpression(r.s, null);
-        } catch (e) {
+            const expr = doc.createExpression(r.s, null);
+            expr.evaluate(doc, XPathResult.ANY_UNORDERED_NODE_TYPE);
+        } catch {
             return;
         }
         return r.s;
@@ -4275,7 +4216,7 @@ export const utils = (( ) => {
                         regexAnalyzer(reStr, false).tree()
                     );
                 }
-            } catch(ex) {
+            } catch {
                 return false;
             }
             return true;
@@ -4286,7 +4227,7 @@ export const utils = (( ) => {
             let tree;
             try {
                 tree = regexAnalyzer(reStr, false).tree();
-            } catch(ex) {
+            } catch {
                 return;
             }
             const isRE2 = node => {
@@ -4317,7 +4258,7 @@ export const utils = (( ) => {
                 s = this.tokenizableStrFromNode(
                     regexAnalyzer(reStr, false).tree()
                 );
-            } catch(ex) {
+            } catch {
             }
             // Process optional sequences
             const reOptional = /[\x02\x03]+/;
@@ -4362,7 +4303,7 @@ export const utils = (( ) => {
         // only ABP.
         [ 'ext_abp', 'false' ],
         // Compatibility with other blockers
-        // https://kb.adguard.com/en/general/how-to-create-your-own-ad-filters#adguard-specific
+        // https://adguard.com/kb/general/ad-filtering/create-own-filters/#conditions-directive
         [ 'adguard', 'adguard' ],
         [ 'adguard_app_android', 'false' ],
         [ 'adguard_app_ios', 'false' ],
@@ -4379,7 +4320,7 @@ export const utils = (( ) => {
     const toURL = url => {
         try {
             return new URL(url.trim());
-        } catch (ex) {
+        } catch {
         }
     };
 
@@ -4430,14 +4371,14 @@ export const utils = (( ) => {
             const parts = [ 0 ];
             let discard = false;
 
-            const shouldDiscard = ( ) => stack.some(v => v);
+            const shouldDiscard = ( ) => stack.some(v => v.known && v.discard);
 
-            const begif = (startDiscard, match) => {
-                if ( discard === false && startDiscard ) {
-                    parts.push(match.index);
+            const begif = details => {
+                if ( discard === false && details.known && details.discard ) {
+                    parts.push(details.pos);
                     discard = true;
                 }
-                stack.push(startDiscard);
+                stack.push(details);
             };
 
             const endif = match => {
@@ -4455,15 +4396,21 @@ export const utils = (( ) => {
 
                 switch ( match[1] ) {
                 case 'if': {
-                    const startDiscard = this.evaluateExpr(match[2].trim(), env) === false;
-                    begif(startDiscard, match);
+                    const result = this.evaluateExpr(match[2].trim(), env);
+                    begif({
+                        known: result !== undefined,
+                        discard: result === false,
+                        pos: match.index,
+                    });
                     break;
                 }
                 case 'else': {
                     if ( stack.length === 0 ) { break; }
-                    const startDiscard = stack[stack.length-1] === false;
+                    const details = stack[stack.length-1];
                     endif(match);
-                    begif(startDiscard, match);
+                    details.discard = details.discard === false;
+                    details.pos = match.index;
+                    begif(details);
                     break;
                 }
                 case 'endif': {
