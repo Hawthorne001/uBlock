@@ -36,6 +36,8 @@ const isPromise = o => o instanceof Promise;
 const isResolvedObject = o => o instanceof Object &&
     o instanceof Promise === false;
 const reIPv4 = /^\d+\.\d+\.\d+\.\d+$/
+const skipDNS = proxyInfo =>
+    proxyInfo && (proxyInfo.proxyDNS || proxyInfo.type?.charCodeAt(0) === 0x68 /* h */);
 
 /******************************************************************************/
 
@@ -52,9 +54,9 @@ vAPI.Net = class extends vAPI.Net {
         this.pendingRequests = [];
         this.dnsList = [];          // ring buffer
         this.dnsWritePtr = 0;       // next write pointer in ring buffer
-        this.dnsMaxCount = 256;     // max size of ring buffer
+        this.dnsMaxCount = 512;     // max size of ring buffer
         this.dnsDict = new Map();   // hn to index in ring buffer
-        this.dnsEntryTTL = 60000;   // delay after which an entry is obsolete
+        this.dnsCacheTTL = 600;     // TTL in seconds
         this.canUncloakCnames = true;
         this.cnameUncloakEnabled = true;
         this.cnameIgnoreList = null;
@@ -62,6 +64,7 @@ vAPI.Net = class extends vAPI.Net {
         this.cnameIgnoreExceptions = true;
         this.cnameIgnoreRootDocument = true;
         this.cnameReplayFullURL = false;
+        this.dnsResolveEnabled = true;
     }
 
     setOptions(options) {
@@ -89,28 +92,35 @@ vAPI.Net = class extends vAPI.Net {
         if ( 'cnameReplayFullURL' in options ) {
             this.cnameReplayFullURL = options.cnameReplayFullURL === true;
         }
+        if ( 'dnsCacheTTL' in options ) {
+            this.dnsCacheTTL = options.dnsCacheTTL;
+        }
+        if ( 'dnsResolveEnabled' in options ) {
+            this.dnsResolveEnabled = options.dnsResolveEnabled === true;
+        }
         this.dnsList.fill(null);
         this.dnsDict.clear();
     }
 
     normalizeDetails(details) {
+        // https://github.com/uBlockOrigin/uBlock-issues/issues/3379
+        if ( skipDNS(details.proxyInfo) && details.ip === '0.0.0.0' ) {
+            details.ip = null;
+        }
         const type = details.type;
         if ( type === 'imageset' ) {
             details.type = 'image';
             return;
         }
+        if ( type !== 'object' ) { return; }
+        // Try to extract type from response headers if present.
+        if ( details.responseHeaders === undefined ) { return; }
+        const ctype = this.headerValue(details.responseHeaders, 'content-type');
         // https://github.com/uBlockOrigin/uBlock-issues/issues/345
         //   Re-categorize an embedded object as a `sub_frame` if its
         //   content type is that of a HTML document.
-        if ( type === 'object' && Array.isArray(details.responseHeaders) ) {
-            for ( const header of details.responseHeaders ) {
-                if ( header.name.toLowerCase() === 'content-type' ) {
-                    if ( header.value.startsWith('text/html') ) {
-                        details.type = 'sub_frame';
-                    }
-                    break;
-                }
-            }
+        if ( ctype === 'text/html' ) {
+            details.type = 'sub_frame';
         }
     }
 
@@ -135,7 +145,7 @@ vAPI.Net = class extends vAPI.Net {
 
     canonicalNameFromHostname(hn) {
         if ( hn === '' ) { return; }
-        const dnsEntry = this.dnsFromCache(hn);
+        const dnsEntry = this.dnsFromCache(hn, true);
         if ( isResolvedObject(dnsEntry) === false ) { return; }
         return dnsEntry.cname;
     }
@@ -174,8 +184,8 @@ vAPI.Net = class extends vAPI.Net {
         if ( isResolvedObject(dnsEntry) ) {
             return this.onAfterDNSResolution(hn, details, dnsEntry);
         }
+        if ( skipDNS(details.proxyInfo) ) { return; }
         if ( this.dnsShouldResolve(hn) === false ) { return; }
-        if ( details.proxyInfo?.proxyDNS ) { return; }
         const promise = dnsEntry || this.dnsResolve(hn, details);
         return promise.then(( ) => this.onAfterDNSResolution(hn, details));
     }
@@ -204,7 +214,7 @@ vAPI.Net = class extends vAPI.Net {
     }
 
     dnsToCache(hn, record, details) {
-        const dnsEntry = { hn, until: Date.now() + this.dnsEntryTTL };
+        const dnsEntry = { hn, until: Date.now() + this.dnsCacheTTL * 1000 };
         if ( record ) {
             const cname = this.cnameFromRecord(hn, record, details);
             if ( cname ) { dnsEntry.cname = cname; }
@@ -215,13 +225,13 @@ vAPI.Net = class extends vAPI.Net {
         return dnsEntry;
     }
 
-    dnsFromCache(hn) {
+    dnsFromCache(hn, passive = false) {
         const i = this.dnsDict.get(hn);
         if ( i === undefined ) { return; }
         if ( isPromise(i) ) { return i; }
         const dnsEntry = this.dnsList[i];
         if ( dnsEntry !== null && dnsEntry.hn === hn ) {
-            if ( dnsEntry.until >= Date.now() ) {
+            if ( passive || dnsEntry.until >= Date.now() ) {
                 return dnsEntry;
             }
         }
@@ -252,6 +262,7 @@ vAPI.Net = class extends vAPI.Net {
     }
 
     dnsShouldResolve(hn) {
+        if ( this.dnsResolveEnabled === false ) { return false; }
         if ( hn === '' ) { return false; }
         const c0 = hn.charCodeAt(0);
         if ( c0 === 0x5B /* [ */ ) { return false; }
@@ -305,7 +316,7 @@ vAPI.Net = class extends vAPI.Net {
         const { addresses } = record;
         if ( Array.isArray(addresses) === false ) { return; }
         if ( addresses.length === 0 ) { return; }
-        return addresses[0];
+        return addresses.join('\n');
     }
 
     suspendOneRequest(details) {
@@ -340,25 +351,77 @@ vAPI.Net = class extends vAPI.Net {
 
 /******************************************************************************/
 
-vAPI.scriptletsInjector = ((doc, details) => {
-    let script, url;
-    try {
-        const blob = new self.Blob(
-            [ details.scriptlets ],
-            { type: 'text/javascript; charset=utf-8' }
-        );
-        url = self.URL.createObjectURL(blob);
-        script = doc.createElement('script');
-        script.async = false;
-        script.src = url;
-        (doc.head || doc.documentElement || doc).append(script);
-        self.uBO_scriptletsInjected = details.filters;
-    } catch (ex) {
-    }
-    if ( url ) {
-        if ( script ) { script.remove(); }
-        self.URL.revokeObjectURL(url);
-    }
-}).toString();
+vAPI.scriptletsInjector = (( ) => {
+    const parts = [
+        '(',
+        function(details) {
+            if ( typeof self.uBO_scriptletsInjected === 'string' ) { return; }
+            const doc = document;
+            const { location } = doc;
+            if ( location === null ) { return; }
+            const { hostname } = location;
+            if ( hostname !== '' && details.hostname !== hostname ) { return; }
+            // Use a page world sentinel to verify that execution was
+            // successful
+            const { sentinel } = details;
+            let script;
+            try {
+                const code = [
+                    `self['${sentinel}'] = true;`,
+                    details.scriptlets,
+                ].join('\n');
+                script = doc.createElement('script');
+                script.appendChild(doc.createTextNode(code));
+                (doc.head || doc.documentElement).appendChild(script);
+            } catch {
+            }
+            if ( script ) {
+                script.remove();
+                script.textContent = '';
+                script = undefined;
+            }
+            if ( self.wrappedJSObject[sentinel] ) {
+                delete self.wrappedJSObject[sentinel];
+                self.uBO_scriptletsInjected = details.filters;
+                return 0;
+            }
+            // https://github.com/uBlockOrigin/uBlock-issues/issues/235
+            //   Fall back to blob injection if execution through direct
+            //   injection failed
+            let url;
+            try {
+                const blob = new self.Blob(
+                    [ details.scriptlets ],
+                    { type: 'text/javascript; charset=utf-8' }
+                );
+                url = self.URL.createObjectURL(blob);
+                script = doc.createElement('script');
+                script.async = false;
+                script.src = url;
+                (doc.head || doc.documentElement || doc).append(script);
+                self.uBO_scriptletsInjected = details.filters;
+            } catch {
+            }
+            if ( url ) {
+                if ( script ) { script.remove(); }
+                self.URL.revokeObjectURL(url);
+            }
+            return 0;
+        }.toString(),
+        ')(',
+            'json-slot',
+        ');',
+    ];
+    const jsonSlot = parts.indexOf('json-slot');
+    return (hostname, details) => {
+        parts[jsonSlot] = JSON.stringify({
+            hostname,
+            scriptlets: details.mainWorld,
+            filters: details.filters,
+            sentinel: vAPI.generateSecret(3),
+        });
+        return parts.join('');
+    };
+})();
 
 /******************************************************************************/

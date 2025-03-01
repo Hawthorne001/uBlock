@@ -1,3 +1,97 @@
+- [Improve `disable-newtab-links` scriptlet](https://github.com/gorhill/uBlock/commit/d41989e62a)
+- [Improve `prevent-addEventListener` scriptlet](https://github.com/gorhill/uBlock/commit/9c26a07b53)
+- [Fix reverse lookup of `##^responseheader(...)` filters](https://github.com/gorhill/uBlock/commit/5921e50e03)
+- [Improve `evaldata-prune` scriptlet](https://github.com/gorhill/uBlock/commit/9bb1a2baaf)
+- [Comply with Mozilla's "User Consent and Control"](https://github.com/gorhill/uBlock/commit/344539d793)
+- [Improve `noeval-if` scriptlet](https://github.com/gorhill/uBlock/commit/0df7faffac)
+- [Add "closed","next", "mandatory", "agree/disagree" values to `trusted-set-cookie` scriptlet](https://github.com/gorhill/uBlock/commit/35a47d674b) (by @ryanbr)
+- [Add `decline` value to `set-cookie` scriptlet](https://github.com/gorhill/uBlock/commit/4b12247da1)
+- [Improve `abort-on-stack-trace` scriptlet](https://github.com/gorhill/uBlock/commit/b617926c1c)
+- [Improve `href-sanitizer` scriptlet](https://github.com/gorhill/uBlock/commit/551c6bc6eb)
+
+----------
+
+# 1.62.0
+
+## Fixes / changes
+
+- [Fix deserialization of ArrayBuffer shared by multiple TypedArrays](https://github.com/gorhill/uBlock/commit/c92a518218)
+- [Improve `trusted-suppress-native-method` scriptlet](https://github.com/gorhill/uBlock/commit/cb6c11ab6f)
+- [Improve `urlskip=` filter option](https://github.com/gorhill/uBlock/commit/a7aa755f18)
+- [Improve `parse-properties-to-match` scriptlet helper](https://github.com/gorhill/uBlock/commit/7494eaf621)
+- [Improve `href-sanitizer` scriptlet](https://github.com/gorhill/uBlock/commit/9bf8d53ebe)
+- [Improve quote usage in filter options and scriptlets](https://github.com/gorhill/uBlock/commit/8ba71f09d7)
+- [Improve `trusted-suppress-native-method` scriptlet](https://github.com/gorhill/uBlock/commit/7ed3470844)
+- [Improve `trusted-replace-argument` scriptlet](https://github.com/gorhill/uBlock/commit/3417fe3d5d)
+- [Block media elements unconditionally when max size is set to 0](https://github.com/gorhill/uBlock/commit/36db7f8327)
+    - Regression from <https://github.com/gorhill/uBlock/commit/73ce4e6bcf>
+- [Visually separate scriptlet parameters in active line](https://github.com/gorhill/uBlock/commit/076e9fa73e)
+- [Mitigate potentially delayed execution of scriptlets in Firefox](https://github.com/gorhill/uBlock/commit/b1a00145bd)
+- [Improve `prevent-setTimeout`/`prevent-setInterval` scriptlets](https://github.com/gorhill/uBlock/commit/3b7fa79a68)
+- [Improve `trusted-replace-argument` scriptlet](https://github.com/gorhill/uBlock/commit/adced29b5b)
+- [Add `-safebase64` directive to `urlskip=` option](https://github.com/gorhill/uBlock/commit/bcc058eba7)
+- [Improve `urlskip=` filter option](https://github.com/gorhill/uBlock/commit/77ed83ff2f)
+- [Improve `spoof-css` scriptlet](https://github.com/gorhill/uBlock/commit/5f5e3d730f)
+- [Improve `trusted-set-attr` scriptlet](https://github.com/gorhill/uBlock/commit/c8174d6032)
+- [Add support for EasyList `{ remove: true }` cosmetic filter syntax](https://github.com/gorhill/uBlock/commit/ff5fc61753)
+- [Keep moving related scriptlets into separate files](https://github.com/gorhill/uBlock/commit/e5a088738d)
+- [Improve `prevent-xhr` scriptlet](https://github.com/gorhill/uBlock/commit/ce4908b341)
+- [Improve `trusted-suppress-native-method` scriptlet](https://github.com/gorhill/uBlock/commit/41616df866)
+- [Improve `set-cookie` scriptlet](https://github.com/gorhill/uBlock/commit/e613282698)
+
+----------
+
+# 1.61.2
+
+## Fixes / changes
+
+- [Better handle unexpected conditions when deserializing](https://github.com/gorhill/uBlock/commit/4c299bfca9)
+- [Fix potential infinite async loop](https://github.com/gorhill/uBlock/commit/335d947c10) (issue found by @Rob--W)
+
+----------
+
+# 1.61.0
+
+## Fixes / changes
+
+- [Improve `prevent-refresh` scriptlet](https://github.com/gorhill/uBlock/commit/8884f259c1)
+- [Improve `googlesyndication_adsbygoogle.js` scriptlet](https://github.com/gorhill/uBlock/commit/f645e8f0d2)
+- [Offer ability to skip redirects in strict-blocked page](https://github.com/gorhill/uBlock/commit/20b54185fa)
+- [Add `-blocked` directive to `urlskip=` option](https://github.com/gorhill/uBlock/commit/d04dc4c767)
+- [Add `trusted-set-attr` scriptlet](https://github.com/gorhill/uBlock/commit/11ca4a3923)
+- [Remove `64:ff9b:` as private network block](https://github.com/gorhill/uBlock/commit/2621c908c3)
+- [Ensure `urlskip=` redirects only to `https:`](https://github.com/gorhill/uBlock/commit/32f27c5131)
+- [Add support to `urlskip=` media resources](https://github.com/gorhill/uBlock/commit/ce9fc5dc14)
+- [Add `-uricomponent` to `urlskip=` option](https://github.com/gorhill/uBlock/commit/01eebffc1f)
+- [Add `forbidden`/`forever` as safe cookie values](https://github.com/gorhill/uBlock/commit/4d982d9972) (by @ryanbr)
+- [Add regex extraction transformation step to `urlskip=` option](https://github.com/gorhill/uBlock/commit/c86ed5287b)
+- [Improve `prevent-window-open` scriptlet](https://github.com/gorhill/uBlock/commit/85877b12ed)
+- [Add support to parse Adguard's `[$domain=/.../]` regex-based modifier](https://github.com/gorhill/uBlock/commit/58bfe4c846)
+- [Validate result type of XPath expressions](https://github.com/gorhill/uBlock/commit/c746633693)
+- [Fix npm test suite](https://github.com/gorhill/uBlock/commit/818cb2d801)
+- [Add ability to lookup parameter name in `urlskip=`](https://github.com/gorhill/uBlock/commit/64b2086ba4)
+- [Mind that BroadcastChannel contructor can throw in Firefox](https://github.com/gorhill/uBlock/commit/6d2b3375f8)
+- [Add `trusted-override-element-method` scriptlet](https://github.com/gorhill/uBlock/commit/95b0ce5e3a)
+- [Add `trusted-prevent-dom-bypass` scriptlet](https://github.com/gorhill/uBlock/commit/1abc864742)
+- [Improve `prevent-xhr` scriptlet; add `trusted-prevent-xhr` scriptlet](https://github.com/gorhill/uBlock/commit/fe49ced2ac)
+- [Skip dns resolution when requests are proxied through http](https://github.com/gorhill/uBlock/commit/4305bfbdb1)
+- [Blocking large media elements also prevents autoplay, regardless of size](https://github.com/gorhill/uBlock/commit/73ce4e6bcf)
+- [Do not discard `!#else` block for unknown preprocessor tokens](https://github.com/gorhill/uBlock/commit/6cac645830)
+- [Add ability to decode base64 in `urlskip=`](https://github.com/gorhill/uBlock/commit/e81e70937f)
+- [Fix images not properly downloading on click](https://github.com/gorhill/uBlock/commit/aec0bd39e3)
+
+----------
+
+# 1.60.0
+
+## Fixes / changes
+
+- [Add advanced setting `dnsResolveEnabled`](https://github.com/gorhill/uBlock/commit/760b2ffce6)
+- [Fix contextual menu quirks](https://github.com/gorhill/uBlock/commit/0a6dc47a72)
+- [Fix exception thrown in `spoof-css` in Firefox](https://github.com/gorhill/uBlock/commit/11c3a16036)
+- [Throttle down repeated scriptlet logging information](https://github.com/gorhill/uBlock/commit/e8f6f3ddff)
+- [Improve scriptlet helper `proxy-apply`](https://github.com/gorhill/uBlock/commit/547fae4842)
+- [Add an entry in _Report_ page for badware/phishing category](https://github.com/gorhill/uBlock/commit/e18a3707c7)
 - [New static network filter option `urlskip=`](https://github.com/gorhill/uBlock/commit/266ec4894b)
 - [Rewrite cname uncloaking code to account for new `ipaddress=` option](https://github.com/gorhill/uBlock/commit/6acf97bf51)
 - [Avoid using dns.resolve() for proxied DNS resolution](https://github.com/gorhill/uBlock/commit/d5f14ffa32)
